@@ -25,13 +25,14 @@ class BatterieCorps(private val context: Context) {
 
     fun ressentir(ame: Ame): String {
         val n = niveau()
-        when {
-            enCharge() -> ame.changerHumeur(Humeur.JOYEUX)
-            n in 0..5 -> ame.changerHumeur(Humeur.PANIQUE)
-            n in 6..15 -> ame.changerHumeur(Humeur.STRESSE)
-            n in 16..30 -> ame.changerHumeur(Humeur.TRISTE)
-            else -> ame.changerHumeur(Humeur.JOYEUX)
+        val humeur = when {
+            enCharge() -> listOf(Humeur.JOYEUX, Humeur.JOYEUX, Humeur.ENERVE).random()
+            n in 0..5 -> Humeur.PANIQUE
+            n in 6..15 -> Humeur.STRESSE
+            n in 16..30 -> listOf(Humeur.TRISTE, Humeur.BOUDEUR, Humeur.ENERVE).random()
+            else -> listOf(Humeur.JOYEUX, Humeur.BOUDEUR, Humeur.ENERVE).random()
         }
+        ame.changerHumeur(humeur)
         return ame.parler()
     }
 }
