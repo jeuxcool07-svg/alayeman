@@ -10,6 +10,8 @@ import kotlin.concurrent.thread
 
 class Cerveau(private val cle: String) {
 
+    private val MODELE = "gemini-2.5-flash"
+
     private val principal = Handler(Looper.getMainLooper())
     private val historique = JSONArray()
 
@@ -21,26 +23,33 @@ class Cerveau(private val cle: String) {
         "message : exprime-les. Si ta batterie est basse, tu stresses ou tu paniques. " +
         "Au fond tu aimes Alaye et tu ne cherches jamais à lui faire du mal."
 
-    fun repondre(message: String, humeur: Humeur, batterie: Int, onResultat: (String) -> Unit) {
+    private fun message(role: String, texte: String): JSONObject =
+        JSONObject().put("role", role).put(
+            "parts", JSONArray().put(JSONObject().put("text", texte))
+        )
+
+    fun repondre(texte: String, humeur: Humeur, batterie: Int, onResultat: (String) -> Unit) {
         thread {
-            val texte = try {
+            val reponse = try {
                 while (historique.length() >= 20) { historique.remove(0) }
-                historique.put(JSONObject().put("role", "user").put("content", message))
+                historique.put(message("user", texte))
 
+                val systeme = "$ame Humeur actuelle : ${humeur.name}. Batterie : $batterie%."
                 val corps = JSONObject()
-                    .put("model", "claude-haiku-5-5")
-                    .put("max_tokens", 300)
-                    .put("system", "$ame Humeur actuelle : ${humeur.name}. Batterie : $batterie%.")
-                    .put("messages", historique)
+                    .put("systemInstruction", JSONObject().put(
+                        "parts", JSONArray().put(JSONObject().put("text", systeme))
+                    ))
+                    .put("contents", historique)
+                    .put("generationConfig", JSONObject().put("maxOutputTokens", 800))
 
-                val c = URL("https://api.anthropic.com/v1/messages").openConnection() as HttpURLConnection
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/$MODELE:generateContent"
+                val c = URL(url).openConnection() as HttpURLConnection
                 c.requestMethod = "POST"
                 c.doOutput = true
                 c.connectTimeout = 20000
                 c.readTimeout = 30000
-                c.setRequestProperty("content-type", "application/json")
-                c.setRequestProperty("x-api-key", cle)
-                c.setRequestProperty("anthropic-version", "2023-06-01")
+                c.setRequestProperty("Content-Type", "application/json")
+                c.setRequestProperty("x-goog-api-key", cle)
                 c.outputStream.use { it.write(corps.toString().toByteArray()) }
 
                 val code = c.responseCode
@@ -49,18 +58,21 @@ class Cerveau(private val cle: String) {
                 c.disconnect()
 
                 if (code in 200..299) {
-                    val rep = JSONObject(brut).getJSONArray("content").getJSONObject(0).getString("text")
-                    historique.put(JSONObject().put("role", "assistant").put("content", rep))
+                    val rep = JSONObject(brut)
+                        .getJSONArray("candidates").getJSONObject(0)
+                        .getJSONObject("content").getJSONArray("parts")
+                        .getJSONObject(0).getString("text")
+                    historique.put(message("model", rep))
                     rep
                 } else {
                     retirerDernier()
-                    "Erreur $code : vérifie ta clé ou ton compte."
+                    "Erreur $code : " + brut.take(150)
                 }
             } catch (e: Exception) {
                 retirerDernier()
-                "Pas de connexion... je n'arrive pas à te répondre."
+                "Pas de connexion ou réponse vide... réessaie."
             }
-            principal.post { onResultat(texte) }
+            principal.post { onResultat(reponse) }
         }
     }
 
