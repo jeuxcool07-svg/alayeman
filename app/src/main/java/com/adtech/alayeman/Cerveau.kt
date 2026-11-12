@@ -10,7 +10,7 @@ import kotlin.concurrent.thread
 
 class Cerveau(private val cle: String) {
 
-    private val MODELE = "gemini-2.5-flash"
+    private val MODELE = "gemini-3.8-flash"
 
     private val principal = Handler(Looper.getMainLooper())
     private val historique = JSONArray()
