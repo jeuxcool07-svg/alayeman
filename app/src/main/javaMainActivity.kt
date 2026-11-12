@@ -5,6 +5,7 @@ import android.app.AlertDialog
 import android.graphics.Color
 import android.os.Bundle
 import android.text.InputType
+import android.util.Log
 import android.view.Gravity
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -23,6 +24,8 @@ class MainActivity : Activity() {
     private lateinit var conversation: TextView
     private lateinit var defilement: ScrollView
     private lateinit var humeur: TextView
+
+    private fun poids() = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
 
     private fun ajouter(texte: String) {
         conversation.append(texte + "\n\n")
@@ -64,8 +67,7 @@ class MainActivity : Activity() {
             .show()
     }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+    private fun construire() {
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
         corps = BatterieCorps(this)
@@ -95,16 +97,14 @@ class MainActivity : Activity() {
             setHintTextColor(Color.GRAY)
         }
 
-        val poids = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-
         val boutonEnvoyer = Button(this).apply {
             text = "Envoyer"
-            layoutParams = poids
+            layoutParams = poids()
             setOnClickListener { envoyer(saisie) }
         }
         val boutonChercher = Button(this).apply {
             text = "Cherche"
-            layoutParams = poids
+            layoutParams = poids()
             setOnClickListener {
                 ajouter("Alayeman : Je cherche...")
                 recherche.decouvrir { ajouter("Alayeman : $it") }
@@ -112,7 +112,7 @@ class MainActivity : Activity() {
         }
         val boutonCle = Button(this).apply {
             text = "Clé"
-            layoutParams = poids
+            layoutParams = poids()
             setOnClickListener { demanderCle() }
         }
 
@@ -134,5 +134,20 @@ class MainActivity : Activity() {
         }
 
         setContentView(layout)
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        try {
+            construire()
+        } catch (e: Throwable) {
+            val erreur = TextView(this).apply {
+                setTextColor(Color.RED)
+                setBackgroundColor(Color.BLACK)
+                setPadding(32, 64, 32, 32)
+                text = "ERREUR : " + Log.getStackTraceString(e).take(1500)
+            }
+            setContentView(ScrollView(this).apply { addView(erreur) })
+        }
     }
 }
