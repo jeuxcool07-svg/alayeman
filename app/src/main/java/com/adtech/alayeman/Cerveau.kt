@@ -10,7 +10,11 @@ import kotlin.concurrent.thread
 
 class Cerveau(private val cle: String) {
 
-    private val MODELE = "gemini-3.8-flash"
+    private val MODELES = listOf(
+        "gemini-3.8-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite"
+    )
 
     private val principal = Handler(Looper.getMainLooper())
     private val historique = JSONArray()
@@ -28,9 +32,46 @@ class Cerveau(private val cle: String) {
             "parts", JSONArray().put(JSONObject().put("text", texte))
         )
 
+    private fun appeler(modele: String, corps: JSONObject): Pair<Int, String> {
+        return try {
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/$modele:generateContent"
+            val c = URL(url).openConnection() as HttpURLConnection
+            c.requestMethod = "POST"
+            c.doOutput = true
+            c.connectTimeout = 20000
+            c.readTimeout = 30000
+            c.setRequestProperty("Content-Type", "application/json")
+            c.setRequestProperty("x-goog-api-key", cle)
+            c.outputStream.use { it.write(corps.toString().toByteArray()) }
+            val code = c.responseCode
+            val flux = if (code in 200..299) c.inputStream else c.errorStream
+            val brut = flux?.bufferedReader()?.use { it.readText() } ?: ""
+            c.disconnect()
+            Pair(code, brut)
+        } catch (e: Exception) {
+            Pair(-1, e.message ?: "pas de connexion")
+        }
+    }
+
+    private fun extraire(brut: String): String {
+        return try {
+            val parts = JSONObject(brut).optJSONArray("candidates")
+                ?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")
+                ?: return ""
+            val sb = StringBuilder()
+            for (i in 0 until parts.length()) {
+                sb.append(parts.getJSONObject(i).optString("text", ""))
+            }
+            sb.toString().trim()
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
     fun repondre(texte: String, humeur: Humeur, batterie: Int, onResultat: (String) -> Unit) {
         thread {
-            val reponse = try {
+            var reponse: String
+            try {
                 while (historique.length() >= 20) { historique.remove(0) }
                 historique.put(message("user", texte))
 
@@ -40,37 +81,39 @@ class Cerveau(private val cle: String) {
                         "parts", JSONArray().put(JSONObject().put("text", systeme))
                     ))
                     .put("contents", historique)
-                    .put("generationConfig", JSONObject().put("maxOutputTokens", 800))
+                    .put("generationConfig", JSONObject().put("maxOutputTokens", 1024))
 
-                val url = "https://generativelanguage.googleapis.com/v1beta/models/$MODELE:generateContent"
-                val c = URL(url).openConnection() as HttpURLConnection
-                c.requestMethod = "POST"
-                c.doOutput = true
-                c.connectTimeout = 20000
-                c.readTimeout = 30000
-                c.setRequestProperty("Content-Type", "application/json")
-                c.setRequestProperty("x-goog-api-key", cle)
-                c.outputStream.use { it.write(corps.toString().toByteArray()) }
+                var derniere = "Je n'arrive pas à te répondre... réessaie."
+                var trouve: String? = null
 
-                val code = c.responseCode
-                val flux = if (code in 200..299) c.inputStream else c.errorStream
-                val brut = flux.bufferedReader().use { it.readText() }
-                c.disconnect()
+                for (modele in MODELES) {
+                    val resultat = appeler(modele, corps)
+                    val code = resultat.first
+                    val brut = resultat.second
+                    if (code in 200..299) {
+                        val t = extraire(brut)
+                        if (t.isNotEmpty()) {
+                            trouve = t
+                            break
+                        } else {
+                            derniere = "Réponse vide ($modele)."
+                        }
+                    } else {
+                        derniere = "Erreur $code ($modele) : " + brut.take(100)
+                        if (code != -1 && code != 429 && code != 500 && code != 503 && code != 404) break
+                    }
+                }
 
-                if (code in 200..299) {
-                    val rep = JSONObject(brut)
-                        .getJSONArray("candidates").getJSONObject(0)
-                        .getJSONObject("content").getJSONArray("parts")
-                        .getJSONObject(0).getString("text")
-                    historique.put(message("model", rep))
-                    rep
+                if (trouve != null) {
+                    historique.put(message("model", trouve))
+                    reponse = trouve
                 } else {
                     retirerDernier()
-                    "Erreur $code : " + brut.take(150)
+                    reponse = derniere
                 }
             } catch (e: Exception) {
                 retirerDernier()
-                "Pas de connexion ou réponse vide... réessaie."
+                reponse = "Problème inattendu : " + (e.message ?: "inconnu")
             }
             principal.post { onResultat(reponse) }
         }
