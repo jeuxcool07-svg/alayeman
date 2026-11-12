@@ -14,12 +14,14 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 
 class MainActivity : Activity() {
 
     private val ame = Ame()
     private val recherche = Recherche()
     private var cerveau: Cerveau? = null
+    private var voix: Voix? = null
     private lateinit var corps: BatterieCorps
     private lateinit var conversation: TextView
     private lateinit var defilement: ScrollView
@@ -44,7 +46,10 @@ class MainActivity : Activity() {
         saisie.setText("")
         corps.ressentir(ame)
         humeur.text = "${ame.humeur.emoji} ${ame.humeur.name}"
-        c.repondre(message, ame.humeur, corps.niveau()) { ajouter("Alayeman : $it") }
+        c.repondre(message, ame.humeur, corps.niveau()) {
+            ajouter("Alayeman : $it")
+            voix?.parler(it, ame.humeur)
+        }
     }
 
     private fun demanderCle() {
@@ -71,6 +76,7 @@ class MainActivity : Activity() {
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
         corps = BatterieCorps(this)
+        voix = Voix(this)
         val cleSauvee = getSharedPreferences("alayeman", MODE_PRIVATE).getString("cle", "") ?: ""
         if (cleSauvee.isNotBlank()) cerveau = Cerveau(cleSauvee)
 
@@ -110,6 +116,14 @@ class MainActivity : Activity() {
                 recherche.decouvrir { ajouter("Alayeman : $it") }
             }
         }
+        val boutonVoix = Button(this).apply {
+            text = "Voix"
+            layoutParams = poids()
+            setOnClickListener {
+                val info = voix?.voixSuivante() ?: "Voix indisponible"
+                Toast.makeText(this@MainActivity, info, Toast.LENGTH_SHORT).show()
+            }
+        }
         val boutonCle = Button(this).apply {
             text = "Clé"
             layoutParams = poids()
@@ -120,6 +134,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             addView(boutonEnvoyer)
             addView(boutonChercher)
+            addView(boutonVoix)
             addView(boutonCle)
         }
 
@@ -149,5 +164,10 @@ class MainActivity : Activity() {
             }
             setContentView(ScrollView(this).apply { addView(erreur) })
         }
+    }
+
+    override fun onDestroy() {
+        voix?.arreter()
+        super.onDestroy()
     }
 }
