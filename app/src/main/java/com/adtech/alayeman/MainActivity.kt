@@ -1,8 +1,12 @@
 package com.adtech.alayeman
 
+import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.text.InputType
 import android.util.Log
@@ -34,6 +38,20 @@ class MainActivity : Activity() {
     private fun ajouter(texte: String) {
         conversation.append(texte + "\n\n")
         defilement.post { defilement.fullScroll(ScrollView.FOCUS_DOWN) }
+    }
+
+    private fun lancerVeille() {
+        try {
+            if (Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+            }
+            val i = Intent(this, Veilleur::class.java)
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
+        } catch (e: Exception) {
+            Log.e("Alayeman", "Veille impossible", e)
+        }
     }
 
     private fun envoyer(saisie: EditText) {
@@ -167,6 +185,7 @@ class MainActivity : Activity() {
         }
 
         setContentView(layout)
+        lancerVeille()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
