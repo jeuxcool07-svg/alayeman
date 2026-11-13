@@ -178,4 +178,14 @@ class MainActivity : Activity() {
                 setTextColor(Color.RED)
                 setBackgroundColor(Color.BLACK)
                 setPadding(32, 64, 32, 32)
-                text
+                text = "ERREUR : " + Log.getStackTraceString(e).take(1500)
+            }
+            setContentView(ScrollView(this).apply { addView(erreur) })
+        }
+    }
+
+    override fun onDestroy() {
+        voix?.arreter()
+        super.onDestroy()
+    }
+}
