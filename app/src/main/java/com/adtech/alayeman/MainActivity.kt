@@ -22,6 +22,8 @@ class MainActivity : Activity() {
     private val recherche = Recherche()
     private var cerveau: Cerveau? = null
     private var voix: Voix? = null
+    private lateinit var memoire: Memoire
+    private var souvenir = ""
     private lateinit var corps: BatterieCorps
     private lateinit var conversation: TextView
     private lateinit var defilement: ScrollView
@@ -42,6 +44,14 @@ class MainActivity : Activity() {
             ajouter("Alayeman : Donne-moi d'abord ma clé, bouton « Clé ».")
             return
         }
+
+        val nom = Regex("(?i)^je m'appelle\\s+(\\p{L}+)").find(message)
+        if (nom != null) {
+            memoire.definirPrenom(nom.groupValues[1])
+            souvenir = memoire.souvenir()
+            c.souvenir = souvenir
+        }
+
         ajouter("Toi : $message")
         saisie.setText("")
         corps.ressentir(ame)
@@ -64,7 +74,7 @@ class MainActivity : Activity() {
                 val cle = champ.text.toString().trim()
                 if (cle.isNotEmpty()) {
                     getSharedPreferences("alayeman", MODE_PRIVATE).edit().putString("cle", cle).apply()
-                    cerveau = Cerveau(cle)
+                    cerveau = Cerveau(cle).also { it.souvenir = souvenir }
                     ajouter("Alayeman : Ma clé est là. Parle-moi.")
                 }
             }
@@ -77,10 +87,18 @@ class MainActivity : Activity() {
 
         corps = BatterieCorps(this)
         voix = Voix(this)
+        memoire = Memoire(this)
+
+        souvenir = memoire.souvenir()
+        val humeurAbsence = memoire.humeurAbsence()
+        memoire.marquerVisite()
+
         val cleSauvee = getSharedPreferences("alayeman", MODE_PRIVATE).getString("cle", "") ?: ""
-        if (cleSauvee.isNotBlank()) cerveau = Cerveau(cleSauvee)
+        if (cleSauvee.isNotBlank()) cerveau = Cerveau(cleSauvee).also { it.souvenir = souvenir }
 
         corps.ressentir(ame)
+        if (humeurAbsence != null) ame.changerHumeur(humeurAbsence)
+
         humeur = TextView(this).apply {
             textSize = 20f
             setTextColor(Color.GREEN)
@@ -160,14 +178,4 @@ class MainActivity : Activity() {
                 setTextColor(Color.RED)
                 setBackgroundColor(Color.BLACK)
                 setPadding(32, 64, 32, 32)
-                text = "ERREUR : " + Log.getStackTraceString(e).take(1500)
-            }
-            setContentView(ScrollView(this).apply { addView(erreur) })
-        }
-    }
-
-    override fun onDestroy() {
-        voix?.arreter()
-        super.onDestroy()
-    }
-}
+                text
