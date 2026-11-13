@@ -10,6 +10,8 @@ import kotlin.concurrent.thread
 
 class Cerveau(private val cle: String) {
 
+    var souvenir: String = ""
+
     private val MODELES = listOf(
         "gemini-3.8-flash",
         "gemini-3.5-flash-lite",
@@ -75,7 +77,8 @@ class Cerveau(private val cle: String) {
                 while (historique.length() >= 20) { historique.remove(0) }
                 historique.put(message("user", texte))
 
-                val systeme = "$ame Humeur actuelle : ${humeur.name}. Batterie : $batterie%."
+                val systeme = "$ame Souvenirs : $souvenir " +
+                    "Humeur actuelle : ${humeur.name}. Batterie : $batterie%."
                 val corps = JSONObject()
                     .put("systemInstruction", JSONObject().put(
                         "parts", JSONArray().put(JSONObject().put("text", systeme))
