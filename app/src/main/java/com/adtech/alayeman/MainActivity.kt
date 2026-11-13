@@ -26,6 +26,7 @@ class MainActivity : Activity() {
     private val recherche = Recherche()
     private var cerveau: Cerveau? = null
     private var voix: Voix? = null
+    private var ecoute: Ecoute? = null
     private lateinit var memoire: Memoire
     private var souvenir = ""
     private lateinit var corps: BatterieCorps
@@ -34,6 +35,13 @@ class MainActivity : Activity() {
     private lateinit var humeur: TextView
 
     private fun poids() = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+
+    private fun bouton(titre: String, action: () -> Unit): Button = Button(this).apply {
+        text = titre
+        textSize = 12f
+        layoutParams = poids()
+        setOnClickListener { action() }
+    }
 
     private fun ajouter(texte: String) {
         conversation.append(texte + "\n\n")
@@ -105,6 +113,7 @@ class MainActivity : Activity() {
 
         corps = BatterieCorps(this)
         voix = Voix(this)
+        ecoute = Ecoute(this)
         memoire = Memoire(this)
 
         souvenir = memoire.souvenir()
@@ -139,39 +148,28 @@ class MainActivity : Activity() {
             setHintTextColor(Color.GRAY)
         }
 
-        val boutonEnvoyer = Button(this).apply {
-            text = "Envoyer"
-            layoutParams = poids()
-            setOnClickListener { envoyer(saisie) }
-        }
-        val boutonChercher = Button(this).apply {
-            text = "Cherche"
-            layoutParams = poids()
-            setOnClickListener {
-                ajouter("Alayeman : Je cherche...")
-                recherche.decouvrir { ajouter("Alayeman : $it") }
-            }
-        }
-        val boutonVoix = Button(this).apply {
-            text = "Voix"
-            layoutParams = poids()
-            setOnClickListener {
-                val info = voix?.voixSuivante() ?: "Voix indisponible"
-                Toast.makeText(this@MainActivity, info, Toast.LENGTH_SHORT).show()
-            }
-        }
-        val boutonCle = Button(this).apply {
-            text = "Clé"
-            layoutParams = poids()
-            setOnClickListener { demanderCle() }
-        }
-
         val rangee = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(boutonEnvoyer)
-            addView(boutonChercher)
-            addView(boutonVoix)
-            addView(boutonCle)
+            addView(bouton("Envoyer") { envoyer(saisie) })
+            addView(bouton("Micro") {
+                Toast.makeText(this@MainActivity, "Je t'écoute...", Toast.LENGTH_SHORT).show()
+                ecoute?.ecouter(
+                    { texte ->
+                        saisie.setText(texte)
+                        envoyer(saisie)
+                    },
+                    { erreur -> ajouter("Alayeman : $erreur") }
+                )
+            })
+            addView(bouton("Cherche") {
+                ajouter("Alayeman : Je cherche...")
+                recherche.decouvrir { ajouter("Alayeman : $it") }
+            })
+            addView(bouton("Voix") {
+                val info = voix?.voixSuivante() ?: "Voix indisponible"
+                Toast.makeText(this@MainActivity, info, Toast.LENGTH_SHORT).show()
+            })
+            addView(bouton("Clé") { demanderCle() })
         }
 
         val layout = LinearLayout(this).apply {
@@ -204,6 +202,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        ecoute?.arreter()
         voix?.arreter()
         super.onDestroy()
     }
