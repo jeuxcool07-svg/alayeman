@@ -3,11 +3,16 @@ package com.adtech.alayeman
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
+import android.graphics.Bitmap
 import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import android.text.InputType
 import android.util.Log
 import android.view.Gravity
@@ -19,6 +24,8 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import java.io.ByteArrayOutputStream
+import kotlin.concurrent.thread
 
 class MainActivity : Activity() {
 
@@ -27,6 +34,8 @@ class MainActivity : Activity() {
     private var cerveau: Cerveau? = null
     private var voix: Voix? = null
     private var ecoute: Ecoute? = null
+    private var cle = ""
+    private var uriPhoto: Uri? = null
     private lateinit var memoire: Memoire
     private var souvenir = ""
     private lateinit var corps: BatterieCorps
@@ -88,6 +97,62 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun regarder() {
+        if (cle.isBlank()) {
+            ajouter("Alayeman : Donne-moi d'abord ma clé, bouton « Clé ».")
+            return
+        }
+        try {
+            val valeurs = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, "alayeman_${System.currentTimeMillis()}.jpg")
+                put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            }
+            uriPhoto = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, valeurs)
+            val intention = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+            intention.putExtra(MediaStore.EXTRA_OUTPUT, uriPhoto)
+            intention.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            startActivityForResult(intention, 3)
+        } catch (e: Exception) {
+            ajouter("Alayeman : Je n'arrive pas à ouvrir l'appareil photo.")
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != 3) return
+        val uri = uriPhoto ?: return
+        if (resultCode != RESULT_OK) {
+            try { contentResolver.delete(uri, null, null) } catch (e: Exception) { }
+            return
+        }
+        ajouter("Alayeman : Je regarde...")
+        thread {
+            try {
+                val bornes = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bornes) }
+                var echelle = 1
+                while (maxOf(bornes.outWidth, bornes.outHeight) / echelle > 1280) echelle *= 2
+                val reglages = BitmapFactory.Options().apply { inSampleSize = echelle }
+                val image: Bitmap? = contentResolver.openInputStream(uri)?.use {
+                    BitmapFactory.decodeStream(it, null, reglages)
+                }
+                if (image == null) {
+                    runOnUiThread { ajouter("Alayeman : Je n'arrive pas à lire la photo.") }
+                    return@thread
+                }
+                val sortie = ByteArrayOutputStream()
+                image.compress(Bitmap.CompressFormat.JPEG, 80, sortie)
+                try { contentResolver.delete(uri, null, null) } catch (e: Exception) { }
+                Vision(cle).regarder(sortie.toByteArray(), ame.humeur, corps.niveau(), souvenir) {
+                    ajouter("Alayeman : $it")
+                    voix?.parler(it, ame.humeur)
+                }
+            } catch (e: Exception) {
+                runOnUiThread { ajouter("Alayeman : Problème avec la photo : ${e.message}") }
+            }
+        }
+    }
+
     private fun demanderCle() {
         val champ = EditText(this).apply {
             hint = "Colle ta clé API ici"
@@ -97,10 +162,11 @@ class MainActivity : Activity() {
             .setTitle("Clé API")
             .setView(champ)
             .setPositiveButton("Enregistrer") { _, _ ->
-                val cle = champ.text.toString().trim()
-                if (cle.isNotEmpty()) {
-                    getSharedPreferences("alayeman", MODE_PRIVATE).edit().putString("cle", cle).apply()
-                    cerveau = Cerveau(cle).also { it.souvenir = souvenir }
+                val nouvelle = champ.text.toString().trim()
+                if (nouvelle.isNotEmpty()) {
+                    getSharedPreferences("alayeman", MODE_PRIVATE).edit().putString("cle", nouvelle).apply()
+                    cle = nouvelle
+                    cerveau = Cerveau(nouvelle).also { it.souvenir = souvenir }
                     ajouter("Alayeman : Ma clé est là. Parle-moi.")
                 }
             }
@@ -120,8 +186,8 @@ class MainActivity : Activity() {
         val humeurAbsence = memoire.humeurAbsence()
         memoire.marquerVisite()
 
-        val cleSauvee = getSharedPreferences("alayeman", MODE_PRIVATE).getString("cle", "") ?: ""
-        if (cleSauvee.isNotBlank()) cerveau = Cerveau(cleSauvee).also { it.souvenir = souvenir }
+        cle = getSharedPreferences("alayeman", MODE_PRIVATE).getString("cle", "") ?: ""
+        if (cle.isNotBlank()) cerveau = Cerveau(cle).also { it.souvenir = souvenir }
 
         corps.ressentir(ame)
         if (humeurAbsence != null) ame.changerHumeur(humeurAbsence)
@@ -148,7 +214,7 @@ class MainActivity : Activity() {
             setHintTextColor(Color.GRAY)
         }
 
-        val rangee = LinearLayout(this).apply {
+        val rangee1 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             addView(bouton("Envoyer") { envoyer(saisie) })
             addView(bouton("Micro") {
@@ -161,6 +227,11 @@ class MainActivity : Activity() {
                     { erreur -> ajouter("Alayeman : $erreur") }
                 )
             })
+            addView(bouton("Regarde") { regarder() })
+        }
+
+        val rangee2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
             addView(bouton("Cherche") {
                 ajouter("Alayeman : Je cherche...")
                 recherche.decouvrir { ajouter("Alayeman : $it") }
@@ -179,7 +250,8 @@ class MainActivity : Activity() {
             addView(humeur)
             addView(defilement, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
             addView(saisie)
-            addView(rangee)
+            addView(rangee1)
+            addView(rangee2)
         }
 
         setContentView(layout)
