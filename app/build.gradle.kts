@@ -13,6 +13,13 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+
+        buildConfigField("String", "GROQ_KEY", "\"${System.getenv("GROQ_KEY") ?: ""}\"")
+        buildConfigField("String", "GEMINI_KEY", "\"${System.getenv("GEMINI_KEY") ?: ""}\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     compileOptions {
