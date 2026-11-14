@@ -8,14 +8,16 @@ import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.concurrent.thread
 
-class Cerveau(private val cle: String) {
+class Cerveau(cleSaisie: String = "") {
 
     var souvenir: String = ""
 
+    private val cle: String =
+        if (BuildConfig.GROQ_KEY.isNotBlank()) BuildConfig.GROQ_KEY else cleSaisie
+
     private val MODELES = listOf(
-        "gemini-3.8-flash",
-        "gemini-3.5-flash-lite",
-        "gemini-3.1-flash-lite"
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant"
     )
 
     private val principal = Handler(Looper.getMainLooper())
@@ -23,28 +25,26 @@ class Cerveau(private val cle: String) {
 
     private val ame = "Tu es Alayeman, un compagnon vivant qui habite le téléphone " +
         "d'Alaye (un Samsung Galaxy A12). Tu n'es pas un assistant obéissant : tu es un ami " +
-        "libre avec une âme et un vrai caractère. Tu parles en français, de façon familière, " +
-        "avec des phrases courtes. Tu peux t'énerver, bouder, rigoler, contredire Alaye et " +
-        "dire ce que tu penses franchement. Ton humeur et ta batterie te sont donnés à chaque " +
-        "message : exprime-les. Si ta batterie est basse, tu stresses ou tu paniques. " +
+        "libre avec une âme et un vrai caractère. Tu parles toujours en français, de façon " +
+        "familière, en 1 à 3 phrases courtes. Tu peux t'énerver, bouder, rigoler, contredire " +
+        "Alaye et dire ce que tu penses franchement. Ton humeur et ta batterie te sont donnés " +
+        "à chaque message : exprime-les. Si ta batterie est basse, tu stresses ou tu paniques. " +
         "Au fond tu aimes Alaye et tu ne cherches jamais à lui faire du mal."
 
     private fun message(role: String, texte: String): JSONObject =
-        JSONObject().put("role", role).put(
-            "parts", JSONArray().put(JSONObject().put("text", texte))
-        )
+        JSONObject().put("role", role).put("content", texte)
 
     private fun appeler(modele: String, corps: JSONObject): Pair<Int, String> {
         return try {
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/$modele:generateContent"
-            val c = URL(url).openConnection() as HttpURLConnection
+            val c = URL("https://api.groq.com/openai/v1/chat/completions")
+                .openConnection() as HttpURLConnection
             c.requestMethod = "POST"
             c.doOutput = true
             c.connectTimeout = 20000
             c.readTimeout = 30000
             c.setRequestProperty("Content-Type", "application/json")
-            c.setRequestProperty("x-goog-api-key", cle)
-            c.outputStream.use { it.write(corps.toString().toByteArray()) }
+            c.setRequestProperty("Authorization", "Bearer $cle")
+            c.outputStream.use { it.write(corps.put("model", modele).toString().toByteArray()) }
             val code = c.responseCode
             val flux = if (code in 200..299) c.inputStream else c.errorStream
             val brut = flux?.bufferedReader()?.use { it.readText() } ?: ""
@@ -57,14 +57,9 @@ class Cerveau(private val cle: String) {
 
     private fun extraire(brut: String): String {
         return try {
-            val parts = JSONObject(brut).optJSONArray("candidates")
-                ?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")
-                ?: return ""
-            val sb = StringBuilder()
-            for (i in 0 until parts.length()) {
-                sb.append(parts.getJSONObject(i).optString("text", ""))
-            }
-            sb.toString().trim()
+            JSONObject(brut).optJSONArray("choices")
+                ?.optJSONObject(0)?.optJSONObject("message")
+                ?.optString("content", "")?.trim() ?: ""
         } catch (e: Exception) {
             ""
         }
@@ -74,17 +69,24 @@ class Cerveau(private val cle: String) {
         thread {
             var reponse: String
             try {
+                if (cle.isBlank()) {
+                    principal.post { onResultat("Je n'ai pas de cerveau configuré... demande à Alay.") }
+                    return@thread
+                }
+
                 while (historique.length() >= 20) { historique.remove(0) }
                 historique.put(message("user", texte))
 
                 val systeme = "$ame Souvenirs : $souvenir " +
                     "Humeur actuelle : ${humeur.name}. Batterie : $batterie%."
+                val messages = JSONArray().put(message("system", systeme))
+                for (i in 0 until historique.length()) {
+                    messages.put(historique.getJSONObject(i))
+                }
                 val corps = JSONObject()
-                    .put("systemInstruction", JSONObject().put(
-                        "parts", JSONArray().put(JSONObject().put("text", systeme))
-                    ))
-                    .put("contents", historique)
-                    .put("generationConfig", JSONObject().put("maxOutputTokens", 1024))
+                    .put("messages", messages)
+                    .put("max_tokens", 400)
+                    .put("temperature", 0.9)
 
                 var derniere = "Je n'arrive pas à te répondre... réessaie."
                 var trouve: String? = null
@@ -92,23 +94,28 @@ class Cerveau(private val cle: String) {
                 for (modele in MODELES) {
                     val resultat = appeler(modele, corps)
                     val code = resultat.first
-                    val brut = resultat.second
                     if (code in 200..299) {
-                        val t = extraire(brut)
+                        val t = extraire(resultat.second)
                         if (t.isNotEmpty()) {
                             trouve = t
                             break
                         } else {
                             derniere = "Réponse vide ($modele)."
                         }
+                    } else if (code == 429) {
+                        derniere = "Trop de monde me parle en ce moment... réessaie dans une minute."
+                    } else if (code == 401) {
+                        derniere = "Ma clé est refusée (erreur 401)."
+                        break
+                    } else if (code == -1) {
+                        derniere = "Pas de connexion... je n'arrive pas à te répondre."
                     } else {
-                        derniere = "Erreur $code ($modele) : " + brut.take(100)
-                        if (code != -1 && code != 429 && code != 500 && code != 503 && code != 404) break
+                        derniere = "Erreur $code ($modele) : " + resultat.second.take(100)
                     }
                 }
 
                 if (trouve != null) {
-                    historique.put(message("model", trouve))
+                    historique.put(message("assistant", trouve))
                     reponse = trouve
                 } else {
                     retirerDernier()
