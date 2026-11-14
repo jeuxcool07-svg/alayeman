@@ -16,7 +16,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
-import android.text.InputType
 import android.util.Log
 import android.view.Gravity
 import android.view.View
@@ -43,7 +42,6 @@ class MainActivity : Activity() {
     private var cerveau: Cerveau? = null
     private var voix: Voix? = null
     private var ecoute: Ecoute? = null
-    private var cle = ""
     private var uriPhoto: Uri? = null
     private lateinit var memoire: Memoire
     private var souvenir = ""
@@ -61,7 +59,6 @@ class MainActivity : Activity() {
 
     private fun largeurMax(): Int = (resources.displayMetrics.widthPixels * 0.60f).toInt()
 
-    // Largeur exacte d'une bulle : le texte le plus large, sans dépasser le maximum
     private fun largeurTexte(vararg vues: TextView): Int {
         var plus = 0f
         for (v in vues) {
@@ -76,6 +73,10 @@ class MainActivity : Activity() {
 
     private fun majHumeur() {
         humeur.text = "${ame.humeur.emoji} ${ame.humeur.name.lowercase()} · toujours là pour toi 👑"
+    }
+
+    private fun nouveauCerveau() {
+        cerveau = Cerveau().also { it.souvenir = souvenir }
     }
 
     // Message d'Alayeman (bulle verte)
@@ -181,11 +182,7 @@ class MainActivity : Activity() {
     private fun envoyer() {
         val message = saisie.text.toString().trim()
         if (message.isEmpty()) return
-        val c = cerveau
-        if (c == null) {
-            dire("Donne-moi d'abord ma clé, bouton « CLÉ ».")
-            return
-        }
+        val c = cerveau ?: return
 
         val nom = Regex("(?i)^je m'appelle\\s+(\\p{L}+)").find(message)
         if (nom != null) {
@@ -205,8 +202,8 @@ class MainActivity : Activity() {
     }
 
     private fun regarder() {
-        if (cle.isBlank()) {
-            dire("Donne-moi d'abord ma clé, bouton « CLÉ ».")
+        if (BuildConfig.GEMINI_KEY.isBlank()) {
+            dire("Je n'ai pas encore d'yeux... demande à Alay de me les activer.")
             return
         }
         try {
@@ -250,35 +247,15 @@ class MainActivity : Activity() {
                 val sortie = ByteArrayOutputStream()
                 image.compress(Bitmap.CompressFormat.JPEG, 80, sortie)
                 try { contentResolver.delete(uri, null, null) } catch (e: Exception) { }
-                Vision(cle).regarder(sortie.toByteArray(), ame.humeur, corps.niveau(), souvenir) {
-                    dire(it)
-                    voix?.parler(it, ame.humeur)
-                }
+                Vision(BuildConfig.GEMINI_KEY)
+                    .regarder(sortie.toByteArray(), ame.humeur, corps.niveau(), souvenir) {
+                        dire(it)
+                        voix?.parler(it, ame.humeur)
+                    }
             } catch (e: Exception) {
                 runOnUiThread { dire("Problème avec la photo : ${e.message}") }
             }
         }
-    }
-
-    private fun demanderCle() {
-        val champ = EditText(this).apply {
-            hint = "Colle ta clé API ici"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Clé API")
-            .setView(champ)
-            .setPositiveButton("Enregistrer") { _, _ ->
-                val nouvelle = champ.text.toString().trim()
-                if (nouvelle.isNotEmpty()) {
-                    getSharedPreferences("alayeman", MODE_PRIVATE).edit().putString("cle", nouvelle).apply()
-                    cle = nouvelle
-                    cerveau = Cerveau(nouvelle).also { it.souvenir = souvenir }
-                    dire("Ma clé est là. Parle-moi.")
-                }
-            }
-            .setNegativeButton("Annuler", null)
-            .show()
     }
 
     private fun changerVoix() {
@@ -286,11 +263,17 @@ class MainActivity : Activity() {
         Toast.makeText(this, info, Toast.LENGTH_SHORT).show()
     }
 
+    private fun effacer() {
+        fil.removeAllViews()
+        nouveauCerveau()
+        dire(ame.parler())
+    }
+
     private fun parametres() {
         AlertDialog.Builder(this)
             .setTitle("Paramètres")
-            .setItems(arrayOf("Changer de voix", "Saisir la clé API")) { _, quoi ->
-                if (quoi == 0) changerVoix() else demanderCle()
+            .setItems(arrayOf("Changer de voix", "Effacer la conversation")) { _, quoi ->
+                if (quoi == 0) changerVoix() else effacer()
             }
             .setNegativeButton("Fermer", null)
             .show()
@@ -381,16 +364,13 @@ class MainActivity : Activity() {
         souvenir = memoire.souvenir()
         val humeurAbsence = memoire.humeurAbsence()
         memoire.marquerVisite()
-
-        cle = getSharedPreferences("alayeman", MODE_PRIVATE).getString("cle", "") ?: ""
-        if (cle.isNotBlank()) cerveau = Cerveau(cle).also { it.souvenir = souvenir }
+        nouveauCerveau()
 
         corps.ressentir(ame)
         if (humeurAbsence != null) ame.changerHumeur(humeurAbsence)
 
         val racine = FrameLayout(this).apply { setBackgroundColor(Style.NOIR) }
 
-        // Fond : le personnage, qui flotte doucement
         val fond = ImageView(this).apply {
             setImageResource(R.drawable.fond_joyeux)
             alpha = 0.6f
@@ -410,7 +390,6 @@ class MainActivity : Activity() {
             start()
         }
 
-        // En-tête
         val avatarEntete = ImageView(this).apply {
             setImageResource(R.drawable.avatar_joyeux)
             layoutParams = LinearLayout.LayoutParams(dp(64), dp(64))
@@ -457,14 +436,12 @@ class MainActivity : Activity() {
             addView(icone("★", Style.OR) { favoris() })
         }
 
-        // Conversation
         fil = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(8), dp(12), dp(8))
         }
         defilement = ScrollView(this).apply { addView(fil) }
 
-        // Zone de saisie
         saisie = EditText(this).apply {
             hint = "Écris à Alayeman..."
             setTextColor(Style.BLANC)
@@ -507,7 +484,6 @@ class MainActivity : Activity() {
             addView(boutonEnvoi)
         }
 
-        // Les six commandes
         val rangee1 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             addView(commande("✉", "ENVOYER") { envoyer() })
@@ -530,7 +506,7 @@ class MainActivity : Activity() {
                 recherche.decouvrir { dire(it) }
             })
             addView(commande("🔊", "VOIX") { changerVoix() })
-            addView(commande("🔑", "CLÉ") { demanderCle() })
+            addView(commande("🗑", "EFFACER") { effacer() })
         }
         val commandes = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
