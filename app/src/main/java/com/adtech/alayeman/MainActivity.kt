@@ -59,7 +59,16 @@ class MainActivity : Activity() {
     private fun heure(): String =
         SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
 
-    private fun largeurMax(): Int = (resources.displayMetrics.widthPixels * 0.66f).toInt()
+    private fun largeurMax(): Int = (resources.displayMetrics.widthPixels * 0.60f).toInt()
+
+    // Largeur exacte d'une bulle : le texte le plus large, sans dépasser le maximum
+    private fun largeurTexte(vararg vues: TextView): Int {
+        var plus = 0f
+        for (v in vues) {
+            plus = maxOf(plus, v.paint.measureText(v.text.toString()))
+        }
+        return minOf(plus.toInt() + dp(6), largeurMax())
+    }
 
     private fun faireDefiler() {
         defilement.post { defilement.fullScroll(View.FOCUS_DOWN) }
@@ -86,13 +95,15 @@ class MainActivity : Activity() {
             text = texte
             setTextColor(Style.BLANC)
             textSize = 15f
-            maxWidth = largeurMax()
         }
         val horaire = TextView(this).apply {
             text = heure()
             setTextColor(Style.GRIS)
             textSize = 11f
         }
+        contenu.layoutParams = LinearLayout.LayoutParams(
+            largeurTexte(nom, contenu, horaire), ViewGroup.LayoutParams.WRAP_CONTENT
+        )
         val bulle = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = Style.bulleJoyeux(this@MainActivity)
@@ -122,13 +133,15 @@ class MainActivity : Activity() {
             text = texte
             setTextColor(Style.BLANC)
             textSize = 15f
-            maxWidth = largeurMax()
         }
         val horaire = TextView(this).apply {
             text = heure()
             setTextColor(Style.GRIS)
             textSize = 11f
         }
+        contenu.layoutParams = LinearLayout.LayoutParams(
+            largeurTexte(contenu, horaire), ViewGroup.LayoutParams.WRAP_CONTENT
+        )
         val bulle = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = Style.bulleUtilisateur(this@MainActivity)
@@ -320,7 +333,7 @@ class MainActivity : Activity() {
     }
 
     private fun choisirEmoji() {
-        val emojis = arrayOf("😄", "🖕", "😢", "😱", "👍", "❤️", "🔥", "👑")
+        val emojis = arrayOf("😄", "😡", "😢", "😱", "👍", "❤️", "🔥", "👑")
         AlertDialog.Builder(this)
             .setItems(emojis) { _, quoi -> saisie.append(emojis[quoi]) }
             .show()
