@@ -41,6 +41,7 @@ class MainActivity : Activity() {
     private val recherche = Recherche()
     private var cerveau: Cerveau? = null
     private var voix: Voix? = null
+    private var voixIA: VoixIA? = null
     private var ecoute: Ecoute? = null
     private var uriPhoto: Uri? = null
     private lateinit var memoire: Memoire
@@ -77,6 +78,12 @@ class MainActivity : Activity() {
 
     private fun nouveauCerveau() {
         cerveau = Cerveau().also { it.souvenir = souvenir }
+    }
+
+    // Alayeman parle à voix haute : voix Google si possible, sinon voix du téléphone
+    private fun parler(texte: String) {
+        val ia = voixIA
+        if (ia != null) ia.parler(texte, ame.humeur) else voix?.parler(texte, ame.humeur)
     }
 
     // Message d'Alayeman (bulle verte)
@@ -197,7 +204,7 @@ class MainActivity : Activity() {
         majHumeur()
         c.repondre(message, ame.humeur, corps.niveau()) {
             dire(it)
-            voix?.parler(it, ame.humeur)
+            parler(it)
         }
     }
 
@@ -250,7 +257,7 @@ class MainActivity : Activity() {
                 Vision(BuildConfig.GEMINI_KEY)
                     .regarder(sortie.toByteArray(), ame.humeur, corps.niveau(), souvenir) {
                         dire(it)
-                        voix?.parler(it, ame.humeur)
+                        parler(it)
                     }
             } catch (e: Exception) {
                 runOnUiThread { dire("Problème avec la photo : ${e.message}") }
@@ -259,7 +266,7 @@ class MainActivity : Activity() {
     }
 
     private fun changerVoix() {
-        val info = voix?.voixSuivante() ?: "Voix indisponible"
+        val info = voixIA?.voixSuivante() ?: voix?.voixSuivante() ?: "Voix indisponible"
         Toast.makeText(this, info, Toast.LENGTH_SHORT).show()
     }
 
@@ -357,7 +364,11 @@ class MainActivity : Activity() {
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
         corps = BatterieCorps(this)
-        voix = Voix(this)
+        val telephone = Voix(this)
+        voix = telephone
+        if (BuildConfig.GEMINI_KEY.isNotBlank()) {
+            voixIA = VoixIA(this, BuildConfig.GEMINI_KEY, telephone)
+        }
         ecoute = Ecoute(this)
         memoire = Memoire(this)
 
@@ -554,7 +565,8 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         ecoute?.arreter()
-        voix?.arreter()
+        val ia = voixIA
+        if (ia != null) ia.arreter() else voix?.arreter()
         super.onDestroy()
     }
 }
