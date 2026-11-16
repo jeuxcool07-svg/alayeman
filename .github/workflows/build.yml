@@ -19,6 +19,9 @@ jobs:
         with:
           gradle-version: 8.7
 
+      - name: Supprimer la copie en trop de VoixIA
+        run: rm -f app/src/main/java/com/adtech/alayeman/app/src/main/java/com/adtech/alayeman/VoixIA.kt
+
       - name: Construire l'APK
         env:
           GROQ_KEY: ${{ secrets.GROQ_KEY }}
