@@ -5,22 +5,25 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-object Journal {
-    private const val NOM = "journal_alayeman"
-    private const val CLE = "lignes"
-    private const val MAX = 50
+class Journal(contexte: Context) {
 
-    fun ajouter(contexte: Context, action: String) {
-        val heure = SimpleDateFormat("dd/MM HH:mm", Locale.FRANCE).format(Date())
-        val prefs = contexte.getSharedPreferences(NOM, Context.MODE_PRIVATE)
-        val anciennes = prefs.getString(CLE, "") ?: ""
-        val lignes = anciennes.split("\n").filter { it.isNotBlank() } + "$heure - $action"
-        prefs.edit().putString(CLE, lignes.takeLast(MAX).joinToString("\n")).apply()
+    private val prefs = contexte.getSharedPreferences("alayeman_journal", Context.MODE_PRIVATE)
+    private val separateur = "\u0001"
+
+    private fun lire(): MutableList<String> =
+        (prefs.getString("lignes", "") ?: "")
+            .split(separateur).filter { it.isNotBlank() }.toMutableList()
+
+    fun noter(action: String, detail: String = "") {
+        val heure = SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()).format(Date())
+        val ligne = if (detail.isBlank()) "$heure · $action" else "$heure · $action : ${detail.take(120)}"
+        val lignes = lire()
+        lignes.add(ligne)
+        prefs.edit().putString("lignes", lignes.takeLast(50).joinToString(separateur)).apply()
     }
 
-    fun lire(contexte: Context, nombre: Int = 10): String {
-        val prefs = contexte.getSharedPreferences(NOM, Context.MODE_PRIVATE)
-        val texte = prefs.getString(CLE, "") ?: ""
-        return texte.split("\n").filter { it.isNotBlank() }.takeLast(nombre).joinToString("\n")
+    fun derniers(n: Int = 8): String {
+        val lignes = lire().takeLast(n)
+        return if (lignes.isEmpty()) "(journal vide)" else lignes.joinToString(" | ")
     }
 }
