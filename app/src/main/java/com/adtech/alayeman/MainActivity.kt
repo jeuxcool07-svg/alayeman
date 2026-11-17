@@ -43,8 +43,11 @@ class MainActivity : Activity() {
     private var voix: Voix? = null
     private var voixIA: VoixIA? = null
     private var ecoute: Ecoute? = null
+    private var ussd: Ussd? = null
+    private var presse: Presse? = null
     private var uriPhoto: Uri? = null
     private lateinit var memoire: Memoire
+    private lateinit var journal: Journal
     private var souvenir = ""
     private lateinit var corps: BatterieCorps
     private lateinit var fil: LinearLayout
@@ -52,6 +55,11 @@ class MainActivity : Activity() {
     private lateinit var humeur: TextView
     private lateinit var saisie: EditText
     private var derniereReponse = ""
+
+    // Mots qui déclenchent les deux outils
+    private val motsCredit = Regex("(?i)(cr[ée]dit|forfait|solde|\\bdata\\b|mo restant|go restant)")
+    private val motsPresse = Regex("(?i)(presse[- ]?papiers?|copi[ée]|clipboard)")
+    private val motsGarder = Regex("(?i)(garde|stocke|note)")
 
     private fun dp(valeur: Int): Int = Style.dp(this, valeur)
 
@@ -77,10 +85,12 @@ class MainActivity : Activity() {
     }
 
     private fun nouveauCerveau() {
-        cerveau = Cerveau().also { it.souvenir = souvenir }
+        cerveau = Cerveau().also {
+            it.souvenir = souvenir
+            it.journal = journal.derniers()
+        }
     }
 
-    // Alayeman parle à voix haute : voix Google si possible, sinon voix du téléphone
     private fun parler(texte: String) {
         val ia = voixIA
         if (ia != null) ia.parler(texte, ame.humeur) else voix?.parler(texte, ame.humeur)
@@ -186,6 +196,63 @@ class MainActivity : Activity() {
         }
     }
 
+    // Envoie une consigne au cerveau avec le journal à jour
+    private fun demanderAuCerveau(consigne: String) {
+        val c = cerveau ?: return
+        c.souvenir = souvenir
+        c.journal = journal.derniers()
+        corps.ressentir(ame)
+        majHumeur()
+        c.repondre(consigne, ame.humeur, corps.niveau()) {
+            dire(it)
+            parler(it)
+        }
+    }
+
+    // OUTIL 1 : crédit et forfait par USSD (*101#)
+    private fun verifierCredit() {
+        val u = ussd ?: return
+        journal.noter("CREDIT", "code lancé")
+        dire("Je lance ton code de crédit, une seconde...")
+        u.verifierCredit(
+            { reponse ->
+                cerveau?.credit = reponse.take(600)
+                journal.noter("CREDIT", "réponse reçue")
+                demanderAuCerveau(
+                    "Voici la réponse de mon code crédit. Dis-moi combien j'ai de crédit et de data, " +
+                        "et ce qui expire bientôt."
+                )
+            },
+            { erreur ->
+                journal.noter("CREDIT_ECHEC", erreur)
+                dire(erreur)
+            }
+        )
+    }
+
+    // OUTIL 2 : presse-papiers (uniquement sur demande)
+    private fun analyserPresse(demande: String) {
+        val p = presse ?: return
+        val texte = p.lire()
+        if (texte == null) {
+            journal.noter("PRESSE", "vide ou illisible")
+            dire("Ton presse-papiers est vide, ou Android ne me laisse pas le lire. Copie un texte, reviens ici, puis réessaie.")
+            return
+        }
+        if (p.sensible(texte)) {
+            journal.noter("PRESSE", "contenu sensible ignoré")
+            dire("Ce que tu as copié ressemble à un code, un mot de passe ou un numéro de carte. Je ne le lis pas et je ne l'envoie nulle part.")
+            return
+        }
+        journal.noter("PRESSE", "${texte.length} caractères lus")
+        cerveau?.presse = p.apercu(texte)
+        if (motsGarder.containsMatchIn(demande)) {
+            p.garder(texte)
+            journal.noter("PRESSE", "texte gardé en note")
+        }
+        demanderAuCerveau("Voici ce que je viens de copier. Résume-le et commente-le.")
+    }
+
     private fun envoyer() {
         val message = saisie.text.toString().trim()
         if (message.isEmpty()) return
@@ -200,12 +267,19 @@ class MainActivity : Activity() {
 
         moi(message)
         saisie.setText("")
-        corps.ressentir(ame)
-        majHumeur()
-        c.repondre(message, ame.humeur, corps.niveau()) {
-            dire(it)
-            parler(it)
+
+        // Le routage est local et déterministe : l'IA ne déclenche aucune action seule
+        if (motsPresse.containsMatchIn(message)) {
+            analyserPresse(message)
+            return
         }
+        if (motsCredit.containsMatchIn(message)) {
+            verifierCredit()
+            return
+        }
+
+        journal.noter("MESSAGE", message)
+        demanderAuCerveau(message)
     }
 
     private fun regarder() {
@@ -213,6 +287,7 @@ class MainActivity : Activity() {
             dire("Je n'ai pas encore d'yeux... demande à Alay de me les activer.")
             return
         }
+        journal.noter("REGARDE", "photo demandée")
         try {
             val valeurs = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, "alayeman_${System.currentTimeMillis()}.jpg")
@@ -276,11 +351,35 @@ class MainActivity : Activity() {
         dire(ame.parler())
     }
 
+    private fun afficherJournal() {
+        AlertDialog.Builder(this)
+            .setTitle("Journal de bord")
+            .setMessage(journal.derniers(30).replace(" | ", "\n"))
+            .setPositiveButton("OK", null)
+            .show()
+    }
+
+    private fun afficherNotes() {
+        val notes = presse?.notes() ?: emptyList()
+        AlertDialog.Builder(this)
+            .setTitle("Notes du presse-papiers")
+            .setMessage(if (notes.isEmpty()) "Aucune note pour l'instant." else notes.joinToString("\n\n"))
+            .setPositiveButton("OK", null)
+            .show()
+    }
+
     private fun parametres() {
         AlertDialog.Builder(this)
             .setTitle("Paramètres")
-            .setItems(arrayOf("Changer de voix", "Effacer la conversation")) { _, quoi ->
-                if (quoi == 0) changerVoix() else effacer()
+            .setItems(
+                arrayOf("Changer de voix", "Journal de bord", "Notes du presse-papiers", "Effacer la conversation")
+            ) { _, quoi ->
+                when (quoi) {
+                    0 -> changerVoix()
+                    1 -> afficherJournal()
+                    2 -> afficherNotes()
+                    else -> effacer()
+                }
             }
             .setNegativeButton("Fermer", null)
             .show()
@@ -348,8 +447,8 @@ class MainActivity : Activity() {
         transformationMethod = null
         stateListAnimator = null
         background = Style.boutonCommande(this@MainActivity)
-        layoutParams = LinearLayout.LayoutParams(0, dp(52), 1f).apply {
-            setMargins(dp(4), dp(4), dp(4), dp(4))
+        layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+            setMargins(dp(4), dp(3), dp(4), dp(3))
         }
         Style.effetToucher(this)
         setOnClickListener {
@@ -370,11 +469,15 @@ class MainActivity : Activity() {
             voixIA = VoixIA(this, BuildConfig.GEMINI_KEY, telephone)
         }
         ecoute = Ecoute(this)
+        ussd = Ussd(this)
+        presse = Presse(this)
         memoire = Memoire(this)
+        journal = Journal(this)
 
         souvenir = memoire.souvenir()
         val humeurAbsence = memoire.humeurAbsence()
         memoire.marquerVisite()
+        journal.noter("OUVERTURE", "appli ouverte")
         nouveauCerveau()
 
         corps.ressentir(ame)
@@ -513,17 +616,30 @@ class MainActivity : Activity() {
         val rangee2 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             addView(commande("🔎", "CHERCHE") {
+                journal.noter("CHERCHE", "recherche lancée")
                 dire("Je cherche...")
                 recherche.decouvrir { dire(it) }
             })
             addView(commande("🔊", "VOIX") { changerVoix() })
             addView(commande("🗑", "EFFACER") { effacer() })
         }
+        val rangee3 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(commande("💳", "CRÉDIT") {
+                moi("Mon crédit et mes forfaits ?")
+                verifierCredit()
+            })
+            addView(commande("📋", "PRESSE-PAPIERS") {
+                moi("Analyse ce que j'ai copié.")
+                analyserPresse("")
+            })
+        }
         val commandes = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(8), 0, dp(8), dp(10))
+            setPadding(dp(8), 0, dp(8), dp(8))
             addView(rangee1)
             addView(rangee2)
+            addView(rangee3)
         }
 
         val contenu = LinearLayout(this).apply {
