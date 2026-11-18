@@ -11,7 +11,8 @@ class Voix(context: Context) : TextToSpeech.OnInitListener {
     private val prefs = context.getSharedPreferences("alayeman", Context.MODE_PRIVATE)
     private var pret = false
     private var voix: List<Voice> = emptyList()
-    private var index = 0
+    // -1 = on garde la voix choisie dans les réglages du téléphone
+    private var index = prefs.getInt("voix", -1)
     var active = true
 
     override fun onInit(status: Int) {
@@ -21,8 +22,9 @@ class Voix(context: Context) : TextToSpeech.OnInitListener {
         voix = (tts?.voices ?: emptySet<Voice>())
             .filter { it.locale.language == "fr" }
             .sortedBy { it.name }
-        if (voix.isNotEmpty()) {
-            index = prefs.getInt("voix", 0).coerceIn(0, voix.size - 1)
+        // On n'impose une voix que si l'utilisateur en a choisi une avec le bouton VOIX
+        if (index >= 0 && voix.isNotEmpty()) {
+            index = index.coerceIn(0, voix.size - 1)
             tts?.voice = voix[index]
         }
     }
@@ -32,8 +34,6 @@ class Voix(context: Context) : TextToSpeech.OnInitListener {
         index = (index + 1) % voix.size
         prefs.edit().putInt("voix", index).apply()
         tts?.voice = voix[index]
-        tts?.setPitch(0.9f)
-        tts?.setSpeechRate(1.0f)
         tts?.speak("Salut, c'est moi, Alayeman.", TextToSpeech.QUEUE_FLUSH, null, "essai")
         return "Voix ${index + 1} sur ${voix.size}"
     }
