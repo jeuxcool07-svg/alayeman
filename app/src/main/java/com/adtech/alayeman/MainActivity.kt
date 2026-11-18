@@ -96,7 +96,7 @@ class MainActivity : Activity() {
         if (ia != null) ia.parler(texte, ame.humeur) else voix?.parler(texte, ame.humeur)
     }
 
-    // Message d'Alayeman (bulle verte)
+    // Message d'Alayeman (bulle violette)
     private fun dire(texte: String) {
         derniereReponse = texte
         val avatar = ImageView(this).apply {
@@ -105,7 +105,7 @@ class MainActivity : Activity() {
         }
         val nom = TextView(this).apply {
             text = "Joyeux"
-            setTextColor(Style.VERT)
+            setTextColor(Style.OR)
             textSize = 13f
             setTypeface(typeface, Typeface.BOLD)
         }
@@ -145,7 +145,7 @@ class MainActivity : Activity() {
         faireDefiler()
     }
 
-    // Message de l'utilisateur (bulle violette)
+    // Message de l'utilisateur (bulle dorée)
     private fun moi(texte: String) {
         val contenu = TextView(this).apply {
             text = texte
@@ -442,16 +442,17 @@ class MainActivity : Activity() {
         setOnClickListener { action() }
     }
 
+    // Bouton de commande, en colonne à droite
     private fun commande(icone: String, titre: String, action: () -> Unit): Button = Button(this).apply {
         text = "$icone  $titre"
-        textSize = 12f
+        textSize = 11f
         setTextColor(Style.BLANC)
         setTypeface(typeface, Typeface.BOLD)
         transformationMethod = null
         stateListAnimator = null
         background = Style.boutonCommande(this@MainActivity)
-        layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
-            setMargins(dp(4), dp(3), dp(4), dp(3))
+        layoutParams = LinearLayout.LayoutParams(dp(128), dp(46)).apply {
+            setMargins(0, dp(3), 0, dp(3))
         }
         Style.effetToucher(this)
         setOnClickListener {
@@ -514,7 +515,7 @@ class MainActivity : Activity() {
         val nom = TextView(this).apply {
             text = "JOYEUX"
             textSize = 26f
-            setTextColor(Style.VERT)
+            setTextColor(Style.OR)
             setTypeface(typeface, Typeface.BOLD)
         }
         val voyant = View(this).apply {
@@ -601,8 +602,18 @@ class MainActivity : Activity() {
             addView(boutonEnvoi)
         }
 
-        val rangee1 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+        // Colonne de gauche : la discussion, puis la barre de saisie
+        val colonneChat = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+            addView(defilement, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+            addView(barreSaisie)
+        }
+
+        // Colonne de droite : les boutons de commande, l'un sous l'autre
+        val commandes = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(8), dp(6), dp(8))
             addView(commande("✉", "ENVOYER") { envoyer() })
             addView(commande("🎤", "MICRO") {
                 Toast.makeText(this@MainActivity, "Je t'écoute...", Toast.LENGTH_SHORT).show()
@@ -615,9 +626,6 @@ class MainActivity : Activity() {
                 )
             })
             addView(commande("👁", "REGARDE") { regarder() })
-        }
-        val rangee2 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
             addView(commande("🔎", "CHERCHE") {
                 journal.noter("CHERCHE", "recherche lancée")
                 dire("Je cherche...")
@@ -625,9 +633,6 @@ class MainActivity : Activity() {
             })
             addView(commande("🔊", "VOIX") { changerVoix() })
             addView(commande("🗑", "EFFACER") { effacer() })
-        }
-        val rangee3 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
             addView(commande("💳", "CRÉDIT") {
                 moi("Mon crédit et mes forfaits ?")
                 verifierCredit()
@@ -637,23 +642,21 @@ class MainActivity : Activity() {
                 analyserPresse("")
             })
         }
-        val commandes = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(8), 0, dp(8), dp(8))
-            addView(rangee1)
-            addView(rangee2)
-            addView(rangee3)
+
+        // Les deux colonnes côte à côte, sous l'en-tête
+        val milieu = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(colonneChat)
+            addView(commandes)
         }
 
         val contenu = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(entete)
             addView(
-                defilement,
+                milieu,
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
             )
-            addView(barreSaisie)
-            addView(commandes)
         }
         racine.addView(
             contenu,
