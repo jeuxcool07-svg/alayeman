@@ -16,12 +16,14 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import android.text.Editable
+import android.text.TextWatcher
 import android.util.Log
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
-import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -66,8 +68,8 @@ class MainActivity : Activity() {
     private fun heure(): String =
         SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
 
-    // Largeur disponible pour les bulles : l'écran moins la colonne des boutons
-    private fun largeurMax(): Int = resources.displayMetrics.widthPixels - dp(240)
+    // Largeur disponible pour les bulles : presque tout l'écran maintenant
+    private fun largeurMax(): Int = resources.displayMetrics.widthPixels - dp(110)
 
     private fun largeurTexte(vararg vues: TextView): Int {
         var plus = 0f
@@ -286,6 +288,19 @@ class MainActivity : Activity() {
         demanderAuCerveau(message)
     }
 
+    // Micro : on appuie, on parle, le message part tout seul à la fin
+    private fun ecouterVoix() {
+        Toast.makeText(this, "Je t'écoute...", Toast.LENGTH_SHORT).show()
+        ecoute?.ecouter(
+            { texte ->
+                saisie.setText(texte)
+                envoyer()
+            },
+            { erreur -> dire(erreur) }
+        )
+    }
+
+    // Prendre une photo avec l'appareil photo
     private fun regarder() {
         if (BuildConfig.GEMINI_KEY.isBlank()) {
             dire("Je n'ai pas encore d'yeux... demande à Alay de me les activer.")
@@ -307,14 +322,52 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != 3) return
-        val uri = uriPhoto ?: return
-        if (resultCode != RESULT_OK) {
-            try { contentResolver.delete(uri, null, null) } catch (e: Exception) { }
+    // Choisir une photo déjà dans la galerie
+    private fun choisirPhoto() {
+        if (BuildConfig.GEMINI_KEY.isBlank()) {
+            dire("Je n'ai pas encore d'yeux... demande à Alay de me les activer.")
             return
         }
+        journal.noter("REGARDE", "photo choisie dans la galerie")
+        try {
+            val intention = Intent(Intent.ACTION_GET_CONTENT).apply {
+                type = "image/*"
+                addCategory(Intent.CATEGORY_OPENABLE)
+            }
+            startActivityForResult(Intent.createChooser(intention, "Choisir une photo"), 4)
+        } catch (e: Exception) {
+            dire("Je n'arrive pas à ouvrir la galerie.")
+        }
+    }
+
+    // Petit menu du bouton plus
+    private fun menuPlus() {
+        AlertDialog.Builder(this)
+            .setItems(arrayOf("📷 Prendre une photo", "🖼 Choisir une photo")) { _, quoi ->
+                if (quoi == 0) regarder() else choisirPhoto()
+            }
+            .show()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 3) {
+            val uri = uriPhoto ?: return
+            if (resultCode != RESULT_OK) {
+                try { contentResolver.delete(uri, null, null) } catch (e: Exception) { }
+                return
+            }
+            analyserImage(uri, true)
+        } else if (requestCode == 4) {
+            if (resultCode != RESULT_OK) return
+            val uri = data?.data ?: return
+            analyserImage(uri, false)
+        }
+    }
+
+    // Envoie une photo à Gemini (via Vision) et fait réagir Joyeux
+    private fun analyserImage(uri: Uri, supprimer: Boolean) {
+        moi("📷 Photo envoyée")
         dire("Je regarde...")
         thread {
             try {
@@ -332,7 +385,9 @@ class MainActivity : Activity() {
                 }
                 val sortie = ByteArrayOutputStream()
                 image.compress(Bitmap.CompressFormat.JPEG, 80, sortie)
-                try { contentResolver.delete(uri, null, null) } catch (e: Exception) { }
+                if (supprimer) {
+                    try { contentResolver.delete(uri, null, null) } catch (e: Exception) { }
+                }
                 Vision(BuildConfig.GEMINI_KEY)
                     .regarder(sortie.toByteArray(), ame.humeur, corps.niveau(), souvenir) {
                         dire(it)
@@ -353,6 +408,12 @@ class MainActivity : Activity() {
         fil.removeAllViews()
         nouveauCerveau()
         dire(ame.parler())
+    }
+
+    private fun decouvrir() {
+        journal.noter("CHERCHE", "recherche lancée")
+        dire("Je cherche...")
+        recherche.decouvrir { dire(it) }
     }
 
     private fun afficherJournal() {
@@ -376,12 +437,21 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this)
             .setTitle("Paramètres")
             .setItems(
-                arrayOf("Changer de voix", "Journal de bord", "Notes du presse-papiers", "Effacer la conversation")
+                arrayOf(
+                    "Changer de voix",
+                    "Journal de bord",
+                    "Notes du presse-papiers",
+                    "Regarder (appareil photo)",
+                    "Chercher (découverte)",
+                    "Effacer la conversation"
+                )
             ) { _, quoi ->
                 when (quoi) {
                     0 -> changerVoix()
                     1 -> afficherJournal()
                     2 -> afficherNotes()
+                    3 -> regarder()
+                    4 -> decouvrir()
                     else -> effacer()
                 }
             }
@@ -441,27 +511,6 @@ class MainActivity : Activity() {
         layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply { leftMargin = dp(6) }
         Style.effetToucher(this)
         setOnClickListener { action() }
-    }
-
-    // Bouton de commande, en colonne à droite
-    private fun commande(icone: String, titre: String, action: () -> Unit): Button = Button(this).apply {
-        text = "$icone  $titre"
-        textSize = 11f
-        setTextColor(Style.BLANC)
-        setTypeface(typeface, Typeface.BOLD)
-        transformationMethod = null
-        stateListAnimator = null
-        background = Style.boutonCommande(this@MainActivity)
-        layoutParams = LinearLayout.LayoutParams(dp(120), dp(46)).apply {
-            setMargins(0, dp(4), 0, dp(4))
-        }
-        Style.effetToucher(this)
-        setOnClickListener {
-            animate().alpha(0.5f).setDuration(70).withEndAction {
-                animate().alpha(1f).setDuration(120).start()
-            }.start()
-            action()
-        }
     }
 
     private fun construire() {
@@ -584,79 +633,73 @@ class MainActivity : Activity() {
             addView(boutonEmoji)
             addView(saisie)
         }
-        val boutonEnvoi = TextView(this).apply {
-            text = "➤"
+
+        // Bouton plus (à gauche) : photos
+        val boutonPlus = TextView(this).apply {
+            text = "＋"
+            textSize = 26f
+            setTextColor(Style.OR)
+            setTypeface(typeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            background = Style.boutonCommande(this@MainActivity)
+            layoutParams = LinearLayout.LayoutParams(dp(46), dp(46)).apply { rightMargin = dp(8) }
+            Style.effetToucher(this)
+            setOnClickListener { menuPlus() }
+        }
+
+        // Bouton de droite, comme WhatsApp : micro quand le champ est vide, flèche quand il y a du texte
+        val boutonAction = TextView(this).apply {
+            text = "🎤"
             textSize = 22f
             setTextColor(Color.BLACK)
             setTypeface(typeface, Typeface.BOLD)
             gravity = Gravity.CENTER
             background = Style.boutonEnvoi()
             layoutParams = LinearLayout.LayoutParams(dp(52), dp(52)).apply { leftMargin = dp(8) }
-            Style.effetToucher(this)
-            setOnClickListener { envoyer() }
+            setOnTouchListener { vue, evenement ->
+                when (evenement.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        vue.alpha = 0.6f
+                        if (saisie.text.isBlank()) ecouterVoix()
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        vue.alpha = 1f
+                        if (saisie.text.isNotBlank()) envoyer()
+                    }
+                    MotionEvent.ACTION_CANCEL -> vue.alpha = 1f
+                }
+                true
+            }
         }
+        saisie.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                boutonAction.text = if (s.isNullOrBlank()) "🎤" else "➤"
+            }
+        })
+
         val barreSaisie = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(6), dp(12), dp(8))
+            addView(boutonPlus)
             addView(champ)
-            addView(boutonEnvoi)
+            addView(boutonAction)
         }
 
-        // Colonne de gauche : la discussion, puis la barre de saisie
+        // Toute la largeur pour la discussion, puis la barre de saisie en bas
         val colonneChat = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
             addView(defilement, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
             addView(barreSaisie)
-        }
-
-        // Colonne de droite : les boutons, descendus pour être plus bas
-        val commandes = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.END
-            setPadding(0, dp(90), dp(8), dp(8))
-            addView(commande("✉", "ENVOYER") { envoyer() })
-            addView(commande("🎤", "MICRO") {
-                Toast.makeText(this@MainActivity, "Je t'écoute...", Toast.LENGTH_SHORT).show()
-                ecoute?.ecouter(
-                    { texte ->
-                        saisie.setText(texte)
-                        envoyer()
-                    },
-                    { erreur -> dire(erreur) }
-                )
-            })
-            addView(commande("👁", "REGARDE") { regarder() })
-            addView(commande("🔎", "CHERCHE") {
-                journal.noter("CHERCHE", "recherche lancée")
-                dire("Je cherche...")
-                recherche.decouvrir { dire(it) }
-            })
-            addView(commande("🔊", "VOIX") { changerVoix() })
-            addView(commande("🗑", "EFFACER") { effacer() })
-            addView(commande("💳", "CRÉDIT") {
-                moi("Mon crédit et mes forfaits ?")
-                verifierCredit()
-            })
-            addView(commande("📋", "PRESSE-PAPIERS") {
-                moi("Analyse ce que j'ai copié.")
-                analyserPresse("")
-            })
-        }
-
-        // Les deux colonnes côte à côte, sous l'en-tête
-        val milieu = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addView(colonneChat)
-            addView(commandes)
         }
 
         val contenu = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(entete)
             addView(
-                milieu,
+                colonneChat,
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
             )
         }
