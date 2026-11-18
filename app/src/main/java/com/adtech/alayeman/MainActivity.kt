@@ -216,8 +216,11 @@ class MainActivity : Activity() {
         dire("Je lance ton code de crédit, une seconde...")
         u.verifierCredit(
             { reponse ->
-                cerveau?.credit = reponse.take(600)
+                val brut = reponse.trim()
+                cerveau?.credit = brut.take(600)
                 journal.noter("CREDIT", "réponse reçue")
+                // La réponse exacte de Moov, pour que tu puisses la vérifier toi-même
+                dire("📩 Réponse de Moov :\n$brut")
                 demanderAuCerveau(
                     "Voici la réponse de mon code crédit. Dis-moi combien j'ai de crédit et de data, " +
                         "et ce qui expire bientôt."
