@@ -66,7 +66,8 @@ class MainActivity : Activity() {
     private fun heure(): String =
         SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
 
-    private fun largeurMax(): Int = (resources.displayMetrics.widthPixels * 0.60f).toInt()
+    // Largeur disponible pour les bulles : l'écran moins la colonne des boutons
+    private fun largeurMax(): Int = resources.displayMetrics.widthPixels - dp(240)
 
     private fun largeurTexte(vararg vues: TextView): Int {
         var plus = 0f
@@ -91,9 +92,9 @@ class MainActivity : Activity() {
         }
     }
 
+    // Parle avec la voix du téléphone uniquement
     private fun parler(texte: String) {
-        val ia = voixIA
-        if (ia != null) ia.parler(texte, ame.humeur) else voix?.parler(texte, ame.humeur)
+        voix?.parler(texte, ame.humeur)
     }
 
     // Message d'Alayeman (bulle violette)
@@ -344,7 +345,7 @@ class MainActivity : Activity() {
     }
 
     private fun changerVoix() {
-        val info = voixIA?.voixSuivante() ?: voix?.voixSuivante() ?: "Voix indisponible"
+        val info = voix?.voixSuivante() ?: "Voix indisponible"
         Toast.makeText(this, info, Toast.LENGTH_SHORT).show()
     }
 
@@ -451,8 +452,8 @@ class MainActivity : Activity() {
         transformationMethod = null
         stateListAnimator = null
         background = Style.boutonCommande(this@MainActivity)
-        layoutParams = LinearLayout.LayoutParams(dp(128), dp(46)).apply {
-            setMargins(0, dp(3), 0, dp(3))
+        layoutParams = LinearLayout.LayoutParams(dp(120), dp(46)).apply {
+            setMargins(0, dp(4), 0, dp(4))
         }
         Style.effetToucher(this)
         setOnClickListener {
@@ -467,11 +468,8 @@ class MainActivity : Activity() {
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
         corps = BatterieCorps(this)
-        val telephone = Voix(this)
-        voix = telephone
-        if (BuildConfig.GEMINI_KEY.isNotBlank()) {
-            voixIA = VoixIA(this, BuildConfig.GEMINI_KEY, telephone)
-        }
+        // La voix Gemini est désactivée : seule la voix du téléphone est utilisée
+        voix = Voix(this)
         ecoute = Ecoute(this)
         ussd = Ussd(this)
         presse = Presse(this)
@@ -564,8 +562,11 @@ class MainActivity : Activity() {
             hint = "Écris à Alayeman..."
             setTextColor(Style.BLANC)
             setHintTextColor(Style.GRIS)
+            textSize = 16f
             background = null
-            maxLines = 4
+            minLines = 1
+            maxLines = 6
+            gravity = Gravity.CENTER_VERTICAL or Gravity.START
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         val boutonEmoji = TextView(this).apply {
@@ -578,7 +579,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = Style.champSaisie(this@MainActivity)
-            setPadding(dp(10), dp(4), dp(10), dp(4))
+            setPadding(dp(10), dp(8), dp(10), dp(8))
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             addView(boutonEmoji)
             addView(saisie)
@@ -597,7 +598,7 @@ class MainActivity : Activity() {
         val barreSaisie = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), dp(6), dp(12), dp(4))
+            setPadding(dp(12), dp(6), dp(12), dp(8))
             addView(champ)
             addView(boutonEnvoi)
         }
@@ -610,10 +611,11 @@ class MainActivity : Activity() {
             addView(barreSaisie)
         }
 
-        // Colonne de droite : les boutons de commande, l'un sous l'autre
+        // Colonne de droite : les boutons, descendus pour être plus bas
         val commandes = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(8), dp(6), dp(8))
+            gravity = Gravity.END
+            setPadding(0, dp(90), dp(8), dp(8))
             addView(commande("✉", "ENVOYER") { envoyer() })
             addView(commande("🎤", "MICRO") {
                 Toast.makeText(this@MainActivity, "Je t'écoute...", Toast.LENGTH_SHORT).show()
@@ -687,8 +689,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         ecoute?.arreter()
-        val ia = voixIA
-        if (ia != null) ia.arreter() else voix?.arreter()
+        voix?.arreter()
         super.onDestroy()
     }
 }
