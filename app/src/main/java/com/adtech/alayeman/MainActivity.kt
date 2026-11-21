@@ -58,17 +58,22 @@ class MainActivity : Activity() {
     private lateinit var saisie: EditText
     private var derniereReponse = ""
 
-    // Mots qui déclenchent les deux outils
+    // Mots qui déclenchent les outils
     private val motsCredit = Regex("(?i)(cr[ée]dit|forfait|solde|\\bdata\\b|mo restant|go restant)")
     private val motsPresse = Regex("(?i)(presse[- ]?papiers?|copi[ée]|clipboard)")
     private val motsGarder = Regex("(?i)(garde|stocke|note)")
+    private val motsAchatData = Regex(
+        "(?i)((transform|convert|ach[eè]t|prend|\\bmets?\\b|mettre|passe).*(data|internet|connexion)" +
+            "|(data|internet|connexion).*(transform|convert|ach[eè]t|prend|\\bmets?\\b|mettre|passe))"
+    )
+    private val montantData = Regex("\\b(100|200|250|500|1000)\\b")
 
     private fun dp(valeur: Int): Int = Style.dp(this, valeur)
 
     private fun heure(): String =
         SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
 
-    // Largeur disponible pour les bulles : presque tout l'écran maintenant
+    // Largeur disponible pour les bulles : presque tout l'écran
     private fun largeurMax(): Int = resources.displayMetrics.widthPixels - dp(110)
 
     private fun largeurTexte(vararg vues: TextView): Int {
@@ -236,7 +241,44 @@ class MainActivity : Activity() {
         )
     }
 
-    // OUTIL 2 : presse-papiers (uniquement sur demande)
+    // OUTIL 2 : transformer du crédit en data (confirmation obligatoire dans Ussd)
+    private fun convertirEnData(montant: Int) {
+        val u = ussd ?: return
+        journal.noter("DATA", "achat de $montant F demandé")
+        u.convertirEnData(
+            montant,
+            { reponse ->
+                val brut = reponse.trim()
+                journal.noter("DATA", "réponse reçue pour $montant F")
+                dire("📩 Réponse de Moov :\n$brut")
+                demanderAuCerveau(
+                    "Voici la réponse de Moov à mon achat de data de $montant F de crédit. " +
+                        "Dis en une phrase si ça a marché."
+                )
+            },
+            { erreur ->
+                journal.noter("DATA_ECHEC", erreur)
+                dire(erreur)
+            }
+        )
+    }
+
+    // Liste des montants quand aucun n'est donné
+    private fun choisirMontantData() {
+        val u = ussd ?: return
+        val montants = u.montantsDisponibles()
+        AlertDialog.Builder(this)
+            .setTitle("Combien de crédit transformer en data ?")
+            .setItems(montants.map { "$it F" }.toTypedArray()) { _, quoi ->
+                val m = montants[quoi]
+                moi("Transforme $m F de crédit en data.")
+                convertirEnData(m)
+            }
+            .setNegativeButton("Annuler", null)
+            .show()
+    }
+
+    // OUTIL 3 : presse-papiers (uniquement sur demande)
     private fun analyserPresse(demande: String) {
         val p = presse ?: return
         val texte = p.lire()
@@ -277,6 +319,11 @@ class MainActivity : Activity() {
         // Le routage est local et déterministe : l'IA ne déclenche aucune action seule
         if (motsPresse.containsMatchIn(message)) {
             analyserPresse(message)
+            return
+        }
+        if (motsAchatData.containsMatchIn(message)) {
+            val montant = montantData.find(message)?.value?.toIntOrNull()
+            if (montant != null) convertirEnData(montant) else choisirMontantData()
             return
         }
         if (motsCredit.containsMatchIn(message)) {
@@ -340,11 +387,31 @@ class MainActivity : Activity() {
         }
     }
 
-    // Petit menu du bouton plus
+    // Menu du bouton plus : photos, crédit, data, presse-papiers
     private fun menuPlus() {
         AlertDialog.Builder(this)
-            .setItems(arrayOf("📷 Prendre une photo", "🖼 Choisir une photo")) { _, quoi ->
-                if (quoi == 0) regarder() else choisirPhoto()
+            .setItems(
+                arrayOf(
+                    "📷 Prendre une photo",
+                    "🖼 Choisir une photo",
+                    "💳 Voir mon crédit",
+                    "💾 Convertir du crédit en data",
+                    "📋 Analyser le presse-papiers"
+                )
+            ) { _, quoi ->
+                when (quoi) {
+                    0 -> regarder()
+                    1 -> choisirPhoto()
+                    2 -> {
+                        moi("Mon crédit et mes forfaits ?")
+                        verifierCredit()
+                    }
+                    3 -> choisirMontantData()
+                    else -> {
+                        moi("Analyse ce que j'ai copié.")
+                        analyserPresse("")
+                    }
+                }
             }
             .show()
     }
@@ -634,7 +701,7 @@ class MainActivity : Activity() {
             addView(saisie)
         }
 
-        // Bouton plus (à gauche) : photos
+        // Bouton plus (à gauche) : photos, crédit, data, presse-papiers
         val boutonPlus = TextView(this).apply {
             text = "＋"
             textSize = 26f
